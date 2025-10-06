@@ -1,0 +1,245 @@
+{
+  "name": "LLMs Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -496,
+        -80
+      ],
+      "id": "855e7983-d5ce-4575-97e1-a65142c55dcb",
+      "name": "Trigger When New Message is Received",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aZnQsOOhnTCLosz4",
+          "name": "Eben Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -288,
+        -80
+      ],
+      "id": "74cf9c77-10ae-4320-948b-13a1f96a6032",
+      "name": "Get a message",
+      "webhookId": "4618e1fe-1950-4c74-bb66-67b13b0fd589",
+      "alwaysOutputData": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aZnQsOOhnTCLosz4",
+          "name": "Eben Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.payload;\nlet encodedData = \"\";\n\n// Handle multipart messages\nif (payload?.parts && payload.parts.length > 0) {\n  // Try to find the HTML part\n  const htmlPart = payload.parts.find(p => p.mimeType === \"text/html\");\n  if (htmlPart?.body?.data) {\n    encodedData = htmlPart.body.data;\n  } else {\n    // Fallback: plain text part\n    const textPart = payload.parts.find(p => p.mimeType === \"text/plain\");\n    if (textPart?.body?.data) {\n      encodedData = textPart.body.data;\n    }\n  }\n} else if (payload?.body?.data) {\n  // Single-part messages\n  encodedData = payload.body.data;\n}\n\nif (!encodedData) {\n  return [{ json: { clean_text: \"No email body found\", raw: $json } }];\n}\n\nconst decoded = Buffer.from(encodedData, \"base64\").toString(\"utf8\");\n\n// Clean the HTML\nconst cleanText = decoded\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, \"\")\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, \"\")\n  .replace(/<[^>]+>/g, \" \")\n  .replace(/\\s+/g, \" \")\n  .trim();\n\nreturn [{ json: { clean_text: cleanText } }];\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        -80
+      ],
+      "id": "253f8d0f-999b-408d-84d9-5317bb03a939",
+      "name": "Parse Full HTML Message"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.raw.text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=You are an experienced virtual assistant that classifies emails into one or more of the following categories:\n- Notification\n- Career\n- Finance\n- Meeting/Calender\n- Personal\n- Action Required\n- Work\n- Other\n\nOutput format:\nReturn a JSOM array of strings, where each string is a category name for example: \n\n{\n  \"Notification\"\n  \"Action Required\"\n}"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        128,
+        -80
+      ],
+      "id": "aa2365b7-8996-4d6c-913c-5a27a75b1a57",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        128,
+        128
+      ],
+      "id": "d8ea2fcd-6e1a-43bf-bc49-516465bbd954",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "lbPQuMucBSz3iZTV",
+          "name": "Groq Divverse account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "label"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -656,
+        -240
+      ],
+      "id": "32f1b55a-a266-481b-9e48-3f56aa6b4449",
+      "name": "Get many labels",
+      "webhookId": "d82df025-9805-4939-93cc-f4135722a568",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aZnQsOOhnTCLosz4",
+          "name": "Eben Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const labelMap = {\n  \"Notification\": \"Label_1414736328307638166\",\n  \"Career\": \"Label_8103602173706276838\",\n  \"Financial\": \"Label_1050924439689246211\",\n  \"Meeting/Calender\": \"Label_1853905343760899982\",\n  \"Personal\": \"Label_7799327710548104633\",\n  \"Promotion\": \"Label_1521431043293045852\",\n  \"Action Required\": \"Label_8828540256881400719\",\n  \"Work\": \"Label_5722015042630001160\",\n  \"Other\": \"Label_95103918350141184\",\n}; \n\n\n\n// Read input fields\nconst category = $json.category || \"Notification\";\nconst summary = $json.summary || \"No summary provided.\";\n\n// Get label ID from map\nconst labelId = labelMap[category] || labelMap[\"Notification\"];\n\n// Choose emoji for better readability\nlet emoji = \"📝\";\nswitch (category) {\n  case \"Notification\":\n    emoji = \"📩\";\n    break;\n  case \"Career\":\n    emoji = \"💼\";\n    break;\n  case \"Financial\":\n    emoji = \"💰\";\n    break;\n  case \"Meeting/Calender\":\n    emoji = \"📅\";\n    break;\n  case \"Personal\":\n    emoji = \"🏠\";\n    break;\n  case \"Promotion\":\n    emoji = \"🎉\";\n    break;\n  case \"Action Required\":\n    emoji = \"⚠️\";\n    break;\n  case \"Work\":\n    emoji = \"🧑‍💻\";\n    break;\n  default:\n    emoji = \"📝\";\n}\n\n// Combine both category and label for output\nconst combinedMessage = `${emoji} [${category}] ${summary}`;\n\nreturn [\n  {\n    json: {\n      category,\n      label_id: labelId,\n      combined_message: combinedMessage,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -80
+      ],
+      "id": "966a0cd7-efd1-4686-986b-fe1cb5ef5e51",
+      "name": "Parse LLM Categories"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Get a message').item.json.id }}",
+        "labelIds": "={{ $json.label_id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        688,
+        -80
+      ],
+      "id": "6789a7f9-4303-4ac0-b064-4c103240cade",
+      "name": "Add label to message",
+      "webhookId": "3b166628-98a3-4263-8f29-0c75aafbdce8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aZnQsOOhnTCLosz4",
+          "name": "Eben Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger When New Message is Received": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Parse Full HTML Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Full HTML Message": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM Categories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM Categories": {
+      "main": [
+        [
+          {
+            "node": "Add label to message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f3b18fc3-51bc-4f9f-b968-571c50c3a9d1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "28f8ff0b51cf389c2637b8f29036ba3e2d3a0e9f927563f1250a4ecec04c2c68"
+  },
+  "id": "UYQncwVPVCAXDjrc",
+  "tags": []
+}
